@@ -3,171 +3,139 @@ import io
 import json
 import urllib.request
 from datetime import datetime, timezone
-from pathlib import Path
-from urllib.parse import urlencode
 
-# The original reference site republishes the Federal Reserve GZ/EBP monthly CSV.
-# The direct Federal Reserve endpoint currently returns an older cached file to
-# GitHub Actions, while the reference site's copy is updated through 2026-07.
-SOURCE_URL = "https://charlie7375.github.io/charlie73/_sources_dl/%EC%97%B0%EC%A4%80_GZ%EC%8A%A4%ED%94%84%EB%A0%88%EB%93%9C_%EC%9B%94%EB%B3%84.csv"
-OFFICIAL_SOURCE_URL = "https://www.federalreserve.gov/econresdata/notes/feds-notes/2016/files/ebp_csv.csv"
-
-OUT = Path("data.json")
+SOURCE_URL = "https://charlie7375.github.io/charlie73/data/gz.csv"
+OUTPUT_FILE = "data.json"
 
 
-def parse_number(value):
-    if value is None:
-        return None
-    s = str(value).strip()
-    if not s:
-        return None
-    return float(s.replace(",", ""))
-
-
-def parse_date(value):
-    s = str(value).strip()
-
-    # ISO / YYYY-MM
-    for fmt in ("%Y-%m-%d", "%Y-%m", "%Y/%m/%d", "%Y/%m"):
-        try:
-            return datetime.strptime(s, fmt)
-        except ValueError:
-            pass
-
-    # Common M/D/YYYY form used by the reference CSV
-    for fmt in ("%m/%d/%Y", "%m/%d/%y"):
-        try:
-            return datetime.strptime(s, fmt)
-        except ValueError:
-            pass
-
-    raise ValueError(f"Unsupported date: {value!r}")
-
-
-def normalize_date(value):
-    return parse_date(value).strftime("%Y-%m")
+def download_csv():
+    req = urllib.request.Request(
+        SOURCE_URL,
+        headers={"User-Agent": "Mozilla/5.0"}
+    )
+    with urllib.request.urlopen(req, timeout=30) as response:
+        return response.read().decode("utf-8-sig")
 
 
 def main():
-    # Cache-busting query helps avoid stale CDN/proxy copies.
-    url = SOURCE_URL + "?" + urlencode({"v": datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")})
+    text = download_csv()
 
-    req = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": "Mozilla/5.0 (compatible; GZ-data-updater/1.0)",
-            "Accept": "text/csv,text/plain,*/*",
-            "Cache-Control": "no-cache",
-        },
-    )
+    # Remove blank/comment lines, then parse the real CSV.
+    lines = [
+        line for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
 
-    with urllib.request.urlopen(req, timeout=60) as response:
-        raw = response.read()
+    if not lines:
+        raise RuntimeError("CSV is empty")
 
-    text = raw.decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO("\n".join(lines)))
 
-    # The reference CSV contains a metadata/comment line before the real
-    # CSV header (e.g. "# GZ 신용스프레드..."). Remove blank/comment lines
-    # before passing the content to DictReader.
-    clean_lines = []
-    for line in text.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        clean_lines.append(line)
-
-    if not clean_lines:
-        raise RuntimeError("CSV header not found")
-
-    reader = csv.DictReader(io.StringIO("\n".join(clean_lines)))
     if not reader.fieldnames:
         raise RuntimeError("CSV header not found")
 
-    fields = {f.strip().lower(): f for f in reader.fieldnames if f}
+    headers = [h.strip() for h in reader.fieldnames]
 
-    # The reference CSV uses short names (date,gz,ebp,prob), while the
-    # Federal Reserve CSV uses gz_spread and est_prob. Accept both forms.
-    aliases = {
-        "date": ["date"],
-        "gz_spread": ["gz_spread", "gz"],
-        "ebp": ["ebp"],
-        "est_prob": ["est_prob", "prob", "recession"],
-    }
+    # Accept both the original Federal Reserve naming and the current
+    # source naming: date,gz_spread,ebp,est_prob OR date,gz,ebp,prob.
+    def pick(*names):
+        for name in names:
+            if name in headers:
+                return name
+        return None
 
-    resolved = {}
+    date_col = pick("date")
+    gz_col = pick("gz_spread", "gz")
+    ebp_col = pick("ebp")
+    prob_col = pick("est_prob", "prob")
+
     missing = []
-    for canonical, names in aliases.items():
-        found = next((fields[n] for n in names if n in fields), None)
-        if found is None:
-            missing.append(canonical)
-        else:
-            resolved[canonical] = found
+    if not date_col:
+        missing.append("date")
+    if not gz_col:
+        missing.append("gz_spread/gz")
+    if not ebp_col:
+        missing.append("ebp")
+    if not prob_col:
+        missing.append("est_prob/prob")
 
-    if missing:
     if missing:
         raise RuntimeError(
-            f"Missing columns: {missing}. Found: {reader.fieldnames}"
+            f"Missing columns: {missing}. Found: {headers}"
         )
 
-    rows_by_date = {}
+    rows = []
 
-    for raw_row in reader:
-        if not raw_row:
-            continue
+    for raw in reader:
+        row = {str(k).strip(): (v.strip() if isinstance(v, str) else v)
+               for k, v in raw.items()}
 
-        date_raw = raw_row.get(resolved["date"])
-        if not date_raw:
+        date = row.get(date_col, "")
+        gz = row.get(gz_col, "")
+        ebp = row.get(ebp_col, "")
+        prob = row.get(prob_col, "")
+
+        if not date:
             continue
 
         try:
-            d = normalize_date(date_raw)
-            gz = parse_number(raw_row.get(resolved["gz_spread"]))
-            ebp = parse_number(raw_row.get(resolved["ebp"]))
-            recession = parse_number(raw_row.get(resolved["est_prob"]))
-        except (ValueError, TypeError) as e:
-            print(f"Skipping row: {raw_row} ({e})")
+            gz = float(gz)
+            ebp = float(ebp)
+            prob = float(prob)
+        except (TypeError, ValueError):
             continue
 
-        if gz is None or ebp is None or recession is None:
-            continue
-
-        rows_by_date[d] = {
-            "date": d,
+        rows.append({
+            "date": date,
             "gz": gz,
             "ebp": ebp,
-            "recession": recession,
-        }
+            "recession": prob
+        })
 
-    rows = [rows_by_date[d] for d in sorted(rows_by_date)]
+    # Sort by YYYY-MM or M/D/YYYY safely.
+    def date_key(r):
+        s = r["date"]
+        for fmt in ("%Y-%m", "%m/%d/%Y", "%Y/%m/%d"):
+            try:
+                return datetime.strptime(s, fmt)
+            except ValueError:
+                pass
+        return datetime.min
 
-    if len(rows) < 600:
+    rows.sort(key=date_key)
+
+    # Remove duplicate dates, keeping the latest occurrence.
+    unique = {}
+    for row in rows:
+        unique[row["date"]] = row
+    rows = sorted(unique.values(), key=date_key)
+
+    if len(rows) < 500:
         raise RuntimeError(f"Too few rows: {len(rows)}")
 
     latest = rows[-1]
 
-    # Safety check: do not silently publish stale data again.
-    if latest["date"] < "2026-01":
+    # Safety check: this project is expected to contain 2026 data.
+    latest_key = date_key(latest)
+    if latest_key.year < 2026:
         raise RuntimeError(
-            f"Source is stale: latest={latest['date']}. "
-            "Refusing to overwrite data.json."
+            f"Data is still stale. Latest={latest['date']}. "
+            "Expected 2026 data."
         )
 
-    payload = {
+    output = {
         "title": "GZ 신용스프레드와 EBP (1973~)",
         "unit": "%p",
         "frequency": "매월",
         "source": "Federal Reserve Board · Gilchrist·Zakrajsek",
-        "source_url": OFFICIAL_SOURCE_URL,
-        "data_source_url": SOURCE_URL,
+        "source_url": SOURCE_URL,
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "latest_date": latest["date"],
-        "data": rows,
+        "data": rows
     }
 
-    OUT.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+        json.dump(output, f, ensure_ascii=False, indent=2)
 
     print(f"rows={len(rows)}")
     print(f"first={rows[0]['date']}")

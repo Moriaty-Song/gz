@@ -3,12 +3,14 @@ import json
 from datetime import datetime, timezone
 from urllib.request import Request, urlopen
 
-# Federal Reserve Board의 공식 월간 GZ/EBP CSV
-SOURCE_URL = "https://www.federalreserve.gov/econres/notes/feds-notes/ebp_csv.csv"
+# This is the current official CSV link listed by the Federal Reserve.
+SOURCE_URL = "https://www.federalreserve.gov/econresdata/notes/feds-notes/2016/files/ebp_csv.csv"
 
 req = Request(
     SOURCE_URL,
-    headers={"User-Agent": "Mozilla/5.0 (GitHub Actions; GZ data updater)"}
+    headers={
+        "User-Agent": "Mozilla/5.0 (compatible; GZ-data-updater/1.0)"
+    },
 )
 
 with urlopen(req, timeout=60) as response:
@@ -16,34 +18,41 @@ with urlopen(req, timeout=60) as response:
 
 reader = csv.DictReader(raw.splitlines())
 
+required = {"date", "gz_spread", "ebp", "est_prob"}
+if not required.issubset(set(reader.fieldnames or [])):
+    raise RuntimeError(
+        f"Unexpected columns: {reader.fieldnames}. "
+        f"Expected at least {sorted(required)}"
+    )
+
 rows = []
 for r in reader:
     date = (r.get("date") or "").strip()
     if not date:
         continue
 
-    def num(name):
-        v = (r.get(name) or "").strip()
-        if not v:
+    def number(name):
+        value = (r.get(name) or "").strip()
+        if value in ("", ".", "NA", "NaN"):
             return None
-        return float(v)
+        return float(value)
 
     rows.append({
         "date": date,
-        "gz": num("gz_spread"),
-        "ebp": num("ebp"),
-        "recession": num("est_prob")
+        "gz": number("gz_spread"),
+        "ebp": number("ebp"),
+        "recession": number("est_prob"),
     })
 
-if not rows:
-    raise RuntimeError("Fed CSV에서 데이터를 읽지 못했습니다.")
-
-# 날짜순 정렬 + 중복 제거
+# date ascending + duplicate removal
 rows.sort(key=lambda x: x["date"])
-unique = {}
+dedup = {}
 for row in rows:
-    unique[row["date"]] = row
-rows = list(unique.values())
+    dedup[row["date"]] = row
+rows = list(dedup.values())
+
+if len(rows) < 500:
+    raise RuntimeError(f"Too few rows: {len(rows)}")
 
 latest = rows[-1]
 
@@ -55,15 +64,15 @@ payload = {
     "source_url": SOURCE_URL,
     "updated_at": datetime.now(timezone.utc).isoformat(),
     "latest_date": latest["date"],
-    "data": rows
+    "data": rows,
 }
 
 with open("data.json", "w", encoding="utf-8") as f:
     json.dump(payload, f, ensure_ascii=False, indent=2)
 
-print(f"완료: {len(rows)}개")
-print(f"최초: {rows[0]['date']}")
-print(f"최신: {latest['date']}")
-print(f"GZ: {latest['gz']}")
-print(f"EBP: {latest['ebp']}")
-print(f"침체확률: {latest['recession']}")
+print(f"rows={len(rows)}")
+print(f"first={rows[0]['date']}")
+print(f"latest={latest['date']}")
+print(f"gz={latest['gz']}")
+print(f"ebp={latest['ebp']}")
+print(f"recession={latest['recession']}")

@@ -66,8 +66,20 @@ def main():
 
     text = raw.decode("utf-8-sig")
 
-    # Be tolerant of a UTF-8 BOM and minor formatting differences.
-    reader = csv.DictReader(io.StringIO(text))
+    # The reference CSV contains a metadata/comment line before the real
+    # CSV header (e.g. "# GZ 신용스프레드..."). Remove blank/comment lines
+    # before passing the content to DictReader.
+    clean_lines = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        clean_lines.append(line)
+
+    if not clean_lines:
+        raise RuntimeError("CSV header not found")
+
+    reader = csv.DictReader(io.StringIO("\\n".join(clean_lines)))
     if not reader.fieldnames:
         raise RuntimeError("CSV header not found")
 

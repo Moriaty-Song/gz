@@ -79,13 +79,31 @@ def main():
     if not clean_lines:
         raise RuntimeError("CSV header not found")
 
-    reader = csv.DictReader(io.StringIO("\\n".join(clean_lines)))
+    reader = csv.DictReader(io.StringIO("\n".join(clean_lines)))
     if not reader.fieldnames:
         raise RuntimeError("CSV header not found")
 
     fields = {f.strip().lower(): f for f in reader.fieldnames if f}
-    required = ["date", "gz_spread", "ebp", "est_prob"]
-    missing = [x for x in required if x not in fields]
+
+    # The reference CSV uses short names (date,gz,ebp,prob), while the
+    # Federal Reserve CSV uses gz_spread and est_prob. Accept both forms.
+    aliases = {
+        "date": ["date"],
+        "gz_spread": ["gz_spread", "gz"],
+        "ebp": ["ebp"],
+        "est_prob": ["est_prob", "prob", "recession"],
+    }
+
+    resolved = {}
+    missing = []
+    for canonical, names in aliases.items():
+        found = next((fields[n] for n in names if n in fields), None)
+        if found is None:
+            missing.append(canonical)
+        else:
+            resolved[canonical] = found
+
+    if missing:
     if missing:
         raise RuntimeError(
             f"Missing columns: {missing}. Found: {reader.fieldnames}"
@@ -97,15 +115,15 @@ def main():
         if not raw_row:
             continue
 
-        date_raw = raw_row.get(fields["date"])
+        date_raw = raw_row.get(resolved["date"])
         if not date_raw:
             continue
 
         try:
             d = normalize_date(date_raw)
-            gz = parse_number(raw_row.get(fields["gz_spread"]))
-            ebp = parse_number(raw_row.get(fields["ebp"]))
-            recession = parse_number(raw_row.get(fields["est_prob"]))
+            gz = parse_number(raw_row.get(resolved["gz_spread"]))
+            ebp = parse_number(raw_row.get(resolved["ebp"]))
+            recession = parse_number(raw_row.get(resolved["est_prob"]))
         except (ValueError, TypeError) as e:
             print(f"Skipping row: {raw_row} ({e})")
             continue

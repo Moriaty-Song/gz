@@ -3,8 +3,8 @@
   "unit": "%p",
   "frequency": "매월",
   "source": "Federal Reserve Board · Gilchrist·Zakrajsek",
-  "source_url": "https://www.federalreserve.gov/econres/notes/feds-notes/ebp_csv.csv",
-  "updated_at": "2026-09-07T12:51:03.722365+00:00",
+  "source_url": "https://www.federalreserve.gov/econresdata/notes/feds-notes/2016/files/ebp_csv.csv",
+  "updated_at": "2026-09-07T13:39:44.133678+00:00",
   "latest_date": "9/1/2025",
   "data": [
     {

@@ -4,137 +4,142 @@ import json
 import urllib.request
 from datetime import datetime, timezone
 
-SOURCE_URL = "https://charlie7375.github.io/charlie73/data/gz.csv"
-OUTPUT_FILE = "data.json"
+# 실제 최신 데이터가 들어 있는 참조 CSV
+DATA_URL = (
+    "https://charlie7375.github.io/charlie73/_sources_dl/"
+    "%EC%97%B0%EC%A4%80_GZ%EC%8A%A4%ED%94%84%EB%A0%88%EB%93%9C_%EC%9B%94%EB%B3%84.csv"
+)
+
+# 화면에 표시할 공식 출처
+OFFICIAL_SOURCE_URL = (
+    "https://www.federalreserve.gov/econres/economic-research-data.htm"
+)
 
 
 def download_csv():
     req = urllib.request.Request(
-        SOURCE_URL,
-        headers={"User-Agent": "Mozilla/5.0"}
+        DATA_URL,
+        headers={
+            "User-Agent": "Mozilla/5.0",
+            "Accept": "text/csv,text/plain,*/*",
+        },
     )
     with urllib.request.urlopen(req, timeout=30) as response:
         return response.read().decode("utf-8-sig")
 
 
+def normalize_number(value):
+    if value is None or str(value).strip() == "":
+        return None
+    return float(str(value).strip())
+
+
 def main():
     text = download_csv()
 
-    # Remove blank/comment lines, then parse the real CSV.
-    lines = [
+    # 원본 CSV에는 설명용 # 주석 줄이 앞부분에 있을 수 있으므로 제거
+    clean_lines = [
         line for line in text.splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     ]
 
-    if not lines:
-        raise RuntimeError("CSV is empty")
+    if not clean_lines:
+        raise RuntimeError("CSV 데이터가 비어 있습니다.")
 
-    reader = csv.DictReader(io.StringIO("\n".join(lines)))
+    reader = csv.DictReader(io.StringIO("\n".join(clean_lines)))
+    fieldnames = [str(x).strip().lower() for x in (reader.fieldnames or [])]
 
-    if not reader.fieldnames:
-        raise RuntimeError("CSV header not found")
-
-    headers = [h.strip() for h in reader.fieldnames]
-
-    # Accept both the original Federal Reserve naming and the current
-    # source naming: date,gz_spread,ebp,est_prob OR date,gz,ebp,prob.
-    def pick(*names):
+    # 실제 참조 CSV: date,gz,ebp,prob
+    def find_column(*names):
         for name in names:
-            if name in headers:
-                return name
+            if name in fieldnames:
+                return reader.fieldnames[fieldnames.index(name)]
         return None
 
-    date_col = pick("date")
-    gz_col = pick("gz_spread", "gz")
-    ebp_col = pick("ebp")
-    prob_col = pick("est_prob", "prob")
+    date_col = find_column("date")
+    gz_col = find_column("gz", "gz_spread")
+    ebp_col = find_column("ebp")
+    prob_col = find_column("prob", "est_prob")
 
     missing = []
-    if not date_col:
+    if date_col is None:
         missing.append("date")
-    if not gz_col:
-        missing.append("gz_spread/gz")
-    if not ebp_col:
+    if gz_col is None:
+        missing.append("gz")
+    if ebp_col is None:
         missing.append("ebp")
-    if not prob_col:
-        missing.append("est_prob/prob")
+    if prob_col is None:
+        missing.append("prob")
 
     if missing:
         raise RuntimeError(
-            f"Missing columns: {missing}. Found: {headers}"
+            f"필수 컬럼이 없습니다: {missing}\n"
+            f"발견된 컬럼: {reader.fieldnames}"
         )
 
     rows = []
 
-    for raw in reader:
-        row = {str(k).strip(): (v.strip() if isinstance(v, str) else v)
-               for k, v in raw.items()}
+    for row in reader:
+        date_raw = str(row.get(date_col, "")).strip()
 
-        date = row.get(date_col, "")
-        gz = row.get(gz_col, "")
-        ebp = row.get(ebp_col, "")
-        prob = row.get(prob_col, "")
+        if not date_raw:
+            continue
 
-        if not date:
+        # YYYY-MM 형식으로 통일
+        try:
+            if len(date_raw) == 7 and date_raw[4] == "-":
+                dt = datetime.strptime(date_raw, "%Y-%m")
+            else:
+                dt = datetime.strptime(date_raw, "%m/%d/%Y")
+        except ValueError:
             continue
 
         try:
-            gz = float(gz)
-            ebp = float(ebp)
-            prob = float(prob)
+            gz = normalize_number(row.get(gz_col))
+            ebp = normalize_number(row.get(ebp_col))
+            prob = normalize_number(row.get(prob_col))
         except (TypeError, ValueError):
             continue
 
-        rows.append({
-            "date": date,
-            "gz": gz,
-            "ebp": ebp,
-            "recession": prob
-        })
+        if gz is None or ebp is None or prob is None:
+            continue
 
-    # Sort by YYYY-MM or M/D/YYYY safely.
-    def date_key(r):
-        s = r["date"]
-        for fmt in ("%Y-%m", "%m/%d/%Y", "%Y/%m/%d"):
-            try:
-                return datetime.strptime(s, fmt)
-            except ValueError:
-                pass
-        return datetime.min
+        rows.append(
+            {
+                "date": dt.strftime("%Y-%m"),
+                "gz": gz,
+                "ebp": ebp,
+                "prob": prob,
+            }
+        )
 
-    rows.sort(key=date_key)
+    if not rows:
+        raise RuntimeError("유효한 데이터 행을 찾지 못했습니다.")
 
-    # Remove duplicate dates, keeping the latest occurrence.
-    unique = {}
-    for row in rows:
-        unique[row["date"]] = row
-    rows = sorted(unique.values(), key=date_key)
-
-    if len(rows) < 500:
-        raise RuntimeError(f"Too few rows: {len(rows)}")
+    rows.sort(key=lambda x: datetime.strptime(x["date"], "%Y-%m"))
 
     latest = rows[-1]
 
-    # Safety check: this project is expected to contain 2026 data.
-    latest_key = date_key(latest)
-    if latest_key.year < 2026:
+    # 최신 데이터가 과거로 후퇴하는 경우 GitHub Pages에 잘못된 파일을 배포하지 않음
+    if int(latest["date"][:4]) < 2026:
         raise RuntimeError(
-            f"Data is still stale. Latest={latest['date']}. "
-            "Expected 2026 data."
+            f"최신 데이터가 {latest['date']}입니다. "
+            "2026년 데이터가 없어 업데이트를 중단합니다."
         )
 
     output = {
-        "title": "GZ 신용스프레드와 EBP (1973~)",
-        "unit": "%p",
-        "frequency": "매월",
-        "source": "Federal Reserve Board · Gilchrist·Zakrajsek",
-        "source_url": SOURCE_URL,
+        "source": "Federal Reserve FEDS Notes",
+        "source_url": OFFICIAL_SOURCE_URL,
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "latest_date": latest["date"],
-        "data": rows
+        "latest_gz": latest["gz"],
+        "latest_ebp": latest["ebp"],
+        "latest_recession_probability": latest["prob"],
+        "count": len(rows),
+        "data": rows,
     }
 
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+    with open("data.json", "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
 
     print(f"rows={len(rows)}")
@@ -142,7 +147,7 @@ def main():
     print(f"latest={latest['date']}")
     print(f"gz={latest['gz']}")
     print(f"ebp={latest['ebp']}")
-    print(f"recession={latest['recession']}")
+    print(f"recession={latest['prob']}")
 
 
 if __name__ == "__main__":

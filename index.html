@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GZ 신용스프레드와 EBP (1973~)</title>
+<style>
+:root{--bg:#f7f7f5;--card:#fff;--text:#222;--muted:#777;--line:#e5e5e5;--accent:#2563eb}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Arial,"Noto Sans KR",sans-serif}
+header{background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+nav{max-width:1120px;margin:auto;padding:14px 18px;display:flex;gap:22px;align-items:center;flex-wrap:wrap}
+.logo{font-weight:800;margin-right:20px}.navgroup{font-size:13px;color:#555}
+main{max-width:1050px;margin:0 auto;padding:28px 18px 70px}
+.back{font-size:13px;color:#777;margin-bottom:12px}
+h1{font-size:30px;margin:10px 0 8px}.sub{color:#666;font-size:14px}
+.toc{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px 18px;margin:24px 0}
+.toc a{color:#2563eb;text-decoration:none;margin-right:18px;font-size:14px}
+.desc{line-height:1.75;color:#444}.meta{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:20px 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+.label{font-size:12px;color:var(--muted);margin-bottom:7px}.big{font-size:23px;font-weight:700}
+.buttons{display:flex;gap:7px;flex-wrap:wrap;margin:14px 0}.range{border:1px solid #d5d5d5;background:#fff;border-radius:7px;padding:8px 14px;cursor:pointer}.range.active{background:#222;color:#fff}
+.chartbox{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px}
+canvas{width:100%;height:380px;display:block}
+.download{display:inline-block;margin-top:10px;padding:8px 12px;border-radius:7px;background:#222;color:#fff;text-decoration:none;font-size:13px}
+table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden}
+th,td{padding:9px 10px;border-bottom:1px solid #eee;text-align:right;font-size:13px}th:first-child,td:first-child{text-align:left}th{background:#fafafa}
+@media(max-width:700px){.meta{grid-template-columns:repeat(2,1fr)}h1{font-size:24px}canvas{height:300px}}
+</style>
+</head>
+<body>
+<header><nav>
+<div class="logo">찰리의 시투 추종</div>
+<div class="navgroup">오늘의 시장 ▼</div><div class="navgroup">판단 ▼</div>
+<div class="navgroup">관심종목 ▼</div><div class="navgroup">방법론 ▼</div><div class="navgroup">아카이브 ▼</div>
+</nav></header>
+<main>
+<div class="back">← 미국 금리 &nbsp; 원자료 · 미국 금리</div>
+<h1>GZ 신용스프레드와 EBP (1973~)</h1>
+<div class="sub">미 연준 FEDS Notes · Gilchrist·Zakrajsek · %p · 매월</div>
+
+<div class="toc">
+<b>이 글의 차례</b><br><br>
+<a href="#chart">1. GZ 스프레드 외 2</a>
+<a href="#table">2. 최근 30개</a>
+<a href="#news">3. 관련 뉴스</a>
+</div>
+
+<p class="desc">개별 회사채를 만기가 같은 국채와 견주어 만든 신용스프레드다. 1973년부터 있다.<br>
+EBP는 그 스프레드에서 부도 위험으로 설명되는 몫을 뺀 나머지다. 올라가면 위험을 더 비싸게 매긴 것이다.</p>
+
+<div class="card">
+<div><b>출처</b>　미 연준 FEDS Notes · Gilchrist·Zakrajsek</div>
+<div style="margin-top:8px"><b>단위</b>　%p　　<b>갱신</b>　매월 · 자동</div>
+<a class="download" id="csv">CSV 다운로드</a>
+</div>
+
+<div class="meta">
+<div class="card"><div class="label">지금 값</div><div class="big" id="latest">-</div><div class="label" id="latestDate">-</div></div>
+<div class="card"><div class="label">자료 범위</div><div class="big" id="range">-</div></div>
+<div class="card"><div class="label">데이터 개수</div><div class="big" id="count">-</div></div>
+<div class="card"><div class="label">갱신</div><div class="big">매월</div><div class="label">자동</div></div>
+</div>
+
+<section id="chart">
+<h2>GZ 스프레드 외 2</h2>
+<div class="buttons">
+<button class="range" data-n="12">1년</button><button class="range" data-n="36">3년</button>
+<button class="range" data-n="60">5년</button><button class="range" data-n="120">10년</button>
+<button class="range" data-n="300">25년</button><button class="range active" data-n="99999">전체</button>
+</div>
+<div class="chartbox"><canvas id="chartCanvas"></canvas></div>
+</section>
+
+<section id="table">
+<h2>최근 30개</h2><p class="sub">전체 데이터 가운데 마지막 30개다.</p>
+<table><thead><tr><th>날짜</th><th>GZ 스프레드</th><th>EBP</th><th>침체확률</th></tr></thead>
+<tbody id="tbody"></tbody></table>
+</section>
+
+<section id="news"><h2>관련 뉴스</h2><div class="card">
+제목에 관련 낱말이 실제로 든 기사를 골라 표시하는 영역입니다.<br><br>
+<span class="sub">※ 현재 버전은 화면 복제 단계이며, 다음 단계에서 실제 Google News/뉴스 수집 기능을 연결할 수 있습니다.</span>
+</div></section>
+</main>
+<script>
+let DATA=[], currentN=99999;
+const canvas=document.getElementById("chartCanvas"), ctx=canvas.getContext("2d");
+fetch("data.json").then(r=>r.json()).then(d=>{
+ DATA=d.data;
+ const last=DATA[DATA.length-1];
+ document.getElementById("latest").textContent=last.gz.toFixed(4);
+ document.getElementById("latestDate").textContent=last.date+" · %p";
+ document.getElementById("range").textContent=DATA[0].date+" ~ "+last.date;
+ document.getElementById("count").textContent=DATA.length+"개";
+ document.getElementById("csv").href=makeCSV();
+ renderTable(); draw();
+});
+function makeCSV(){
+ let s="date,GZ,EBP,recession_probability\n"+DATA.map(x=>`${x.date},${x.gz},${x.ebp},${x.recession}`).join("\n");
+ return URL.createObjectURL(new Blob([s],{type:"text/csv;charset=utf-8"}));
+}
+function renderTable(){
+ document.getElementById("tbody").innerHTML=DATA.slice(-30).reverse().map(x=>
+ `<tr><td>${x.date}</td><td>${x.gz.toFixed(4)}</td><td>${x.ebp.toFixed(4)}</td><td>${x.recession.toFixed(4)}</td></tr>`).join("");
+}
+function draw(){
+ const dpr=devicePixelRatio||1,w=canvas.clientWidth,h=canvas.clientHeight;
+ canvas.width=w*dpr;canvas.height=h*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);
+ ctx.clearRect(0,0,w,h);
+ let arr=DATA.slice(-Math.min(currentN,DATA.length)), vals=arr.map(x=>x.gz), min=Math.min(...vals),max=Math.max(...vals);
+ const L=55,R=15,T=18,B=35,pw=w-L-R,ph=h-T-B;
+ ctx.strokeStyle="#ddd";ctx.fillStyle="#777";ctx.font="12px Arial";
+ for(let i=0;i<5;i++){let y=T+ph*i/4,val=max-(max-min)*i/4;ctx.beginPath();ctx.moveTo(L,y);ctx.lineTo(w-R,y);ctx.stroke();ctx.fillText(val.toFixed(2),5,y+4)}
+ ctx.beginPath();
+ arr.forEach((x,i)=>{let px=L+(arr.length===1?0:i/(arr.length-1))*pw;let py=T+(max-x.gz)/(max-min||1)*ph;i?ctx.lineTo(px,py):ctx.moveTo(px,py)});
+ ctx.strokeStyle="#2563eb";ctx.lineWidth=2;ctx.stroke();
+ ctx.fillStyle="#777";ctx.fillText(arr[0].date,L,h-10);ctx.fillText(arr[arr.length-1].date,w-75,h-10);
+}
+document.querySelectorAll(".range").forEach(b=>b.onclick=()=>{
+ document.querySelectorAll(".range").forEach(x=>x.classList.remove("active"));b.classList.add("active");
+ currentN=+b.dataset.n;draw();
+});
+addEventListener("resize",draw);
+</script>
+</body></html>
